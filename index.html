@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tech Explorer - 80% Tech Gallery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Pinterest-style Masonry Layout */
+        .masonry {
+            column-count: 2;
+            column-gap: 16px;
+        }
+        @media (min-width: 640px) { .masonry { column-count: 3; } }
+        @media (min-width: 768px) { .masonry { column-count: 4; } }
+        @media (min-width: 1024px) { .masonry { column-count: 5; } }
+        @media (min-width: 1280px) { .masonry { column-count: 6; } }
+
+        .pin-card {
+            break-inside: avoid;
+            margin-bottom: 16px;
+        }
+        
+        .pin-overlay {
+            background-color: rgba(0, 0, 0, 0.4);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .pin-card:hover .pin-overlay {
+            opacity: 1;
+        }
+
+        /* Modal Animation */
+        .modal-enter {
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Auto-refresh indicator pulse */
+        @keyframes pulse-blue {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .refresh-pulse {
+            animation: pulse-blue 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-white font-sans antialiased">
+
+    <!-- Navigation Bar -->
+    <nav class="fixed top-0 w-full bg-white z-40 flex items-center px-4 py-3 gap-2 border-b">
+        <div class="p-2 text-blue-600 flex items-center gap-2">
+            <i class="fas fa-microchip text-2xl"></i>
+            <div id="refreshTimer" class="hidden md:flex items-center text-[10px] font-bold text-blue-400 uppercase tracking-widest bg-blue-50 px-2 py-1 rounded-full">
+                <span class="refresh-pulse mr-1">●</span> Auto-update in <span id="timerMinutes" class="ml-1">5:00</span>
+            </div>
+        </div>
+        
+        <div class="flex-grow flex items-center bg-gray-100 px-4 py-2 rounded-full group focus-within:ring-4 focus-within:ring-blue-100">
+            <i class="fas fa-search text-gray-500 mr-2"></i>
+            <input type="text" id="searchInput" placeholder="Search tech, gadgets, or code..." class="bg-transparent w-full outline-none text-gray-700">
+        </div>
+
+        <button id="generateBtn" class="bg-black text-white px-6 py-2 rounded-full font-semibold hover:bg-gray-800 transition-colors whitespace-nowrap">
+            <i class="fas fa-magic mr-2"></i>AI Tech Pin
+        </button>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="mt-20 px-4">
+        <!-- Masonry Grid -->
+        <div id="pinContainer" class="masonry">
+            <!-- Pins will be injected here -->
+        </div>
+        
+        <!-- Infinite Scroll Trigger -->
+        <div id="bottom-trigger" class="h-20 flex items-center justify-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+    </main>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="fixed inset-0 bg-black/95 z-[60] hidden flex items-center justify-center p-4">
+        <button id="closeLightbox" class="absolute top-6 right-6 text-white text-3xl hover:text-gray-300">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="max-w-5xl w-full flex flex-col items-center">
+            <img id="lightboxImg" src="" alt="Large View" class="max-h-[80vh] rounded-lg shadow-2xl object-contain modal-enter border border-white/10">
+            <div class="mt-6 flex gap-4">
+                <button id="downloadBtn" class="bg-white text-black px-8 py-3 rounded-full font-bold hover:bg-gray-200 transition-colors">
+                    <i class="fas fa-download mr-2"></i>Download HD
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+        const pinContainer = document.getElementById('pinContainer');
+        const generateBtn = document.getElementById('generateBtn');
+        const searchInput = document.getElementById('searchInput');
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightboxImg');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const closeLightbox = document.getElementById('closeLightbox');
+        const bottomTrigger = document.getElementById('bottom-trigger');
+        const timerDisplay = document.getElementById('timerMinutes');
+
+        let isFetching = false;
+        let pageCount = 1;
+        let currentPins = [];
+        let timeRemaining = 300; 
+
+        // Function to create a Pin element
+        function createPinElement(pin) {
+            const pinCard = document.createElement('div');
+            pinCard.className = 'pin-card group relative cursor-zoom-in';
+            
+            pinCard.innerHTML = `
+                <div class="relative overflow-hidden rounded-2xl bg-gray-900 border border-gray-100">
+                    <img src="${pin.url}" alt="${pin.title}" class="w-full object-cover min-h-[100px]" loading="lazy">
+                    
+                    <div class="pin-overlay absolute inset-0 flex flex-col justify-between p-4">
+                        <div class="flex justify-end">
+                            <button class="view-btn bg-blue-600 text-white px-4 py-2 rounded-full font-bold text-xs hover:bg-blue-700 transition-colors">
+                                Full View
+                            </button>
+                        </div>
+                        <div class="flex justify-between items-center text-white">
+                            <button class="dl-btn bg-white/90 p-3 rounded-full text-black hover:bg-white transition-transform hover:scale-110">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <span class="text-[10px] font-bold bg-blue-500/80 px-2 py-1 rounded tracking-tighter">TECH_RES</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2 px-1">
+                    <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wide truncate">${pin.title || 'Tech Asset'}</p>
+                </div>
+            `;
+
+            pinCard.querySelector('.view-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                openLargeView(pin.url);
+            });
+            pinCard.querySelector('.dl-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                downloadImage(pin.url);
+            });
+            pinCard.addEventListener('click', (e) => {
+                if(!e.target.closest('button')) openLargeView(pin.url);
+            });
+
+            return pinCard;
+        }
+
+        // Fetch Images with 80% Tech Bias
+        async function fetchMoreImages(appendAtTop = false) {
+            if (isFetching) return;
+            isFetching = true;
+
+            // Tech vs Nature/Other
+            const techTopics = ['coding', 'robotics', 'cyberpunk', 'electronics', 'spacecraft', 'server-room', 'abstract-technology', 'digital-art', 'hardware', 'future-city'];
+            const otherTopics = ['landscape', 'art', 'forest', 'ocean', 'minimalist-nature'];
+
+            const newBatch = Array.from({ length: 15 }).map((_, i) => {
+                // 80% Probability for tech
+                const isTech = Math.random() < 0.8;
+                const pool = isTech ? techTopics : otherTopics;
+                const randomTopic = pool[Math.floor(Math.random() * pool.length)];
+                
+                return {
+                    id: Date.now() + i + Math.random(),
+                    title: `${isTech ? '[TECH]' : '[VIEW]'} ${randomTopic.replace('-', ' ')}`,
+                    url: `https://picsum.photos/seed/${randomTopic}-${Math.random()}/600/${800 + Math.floor(Math.random() * 400)}`
+                };
+            });
+
+            newBatch.forEach(pin => {
+                const el = createPinElement(pin);
+                if (appendAtTop) {
+                    currentPins.unshift(pin);
+                    pinContainer.prepend(el);
+                } else {
+                    currentPins.push(pin);
+                    pinContainer.appendChild(el);
+                }
+            });
+
+            pageCount++;
+            isFetching = false;
+        }
+
+        function startUpdateTimer() {
+            setInterval(() => {
+                timeRemaining--;
+                if (timeRemaining <= 0) {
+                    timeRemaining = 300; 
+                    fetchMoreImages(true); 
+                }
+                const mins = Math.floor(timeRemaining / 60);
+                const secs = timeRemaining % 60;
+                timerDisplay.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        function openLargeView(url) {
+            lightboxImg.src = url;
+            downloadBtn.onclick = () => downloadImage(url);
+            lightbox.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        closeLightbox.onclick = () => {
+            lightbox.classList.add('hidden');
+            document.body.style.overflow = 'auto';
+        };
+
+        async function downloadImage(url) {
+            try {
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = `tech-discovery-${Date.now()}.jpg`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(blobUrl);
+            } catch (err) {
+                console.error("Download failed", err);
+            }
+        }
+
+        async function generateAIPin() {
+            const prompts = [
+                "High-tech futuristic computer hardware close-up with glowing blue lights",
+                "Cyberpunk city street at night with neon holograms and advanced tech",
+                "Advanced humanoid robot face with intricate circuitry visible",
+                "Abstract data visualization with glowing digital lines and nodes",
+                "Futuristic laboratory with clean white tech and holographic displays"
+            ];
+            const prompt = prompts[Math.floor(Math.random() * prompts.length)];
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+            const payload = { instances: [{ prompt }], parameters: { sampleCount: 1 } };
+
+            try {
+                generateBtn.innerHTML = '<i class="fas fa-spinner animate-spin"></i>';
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error();
+                const data = await response.json();
+                const base64 = data.predictions[0].bytesBase64Encoded;
+                const newUrl = `data:image/png;base64,${base64}`;
+
+                const newPin = { id: Date.now(), title: '[AI TECH] ' + prompt.substring(0, 20), url: newUrl };
+                currentPins.unshift(newPin);
+                pinContainer.prepend(createPinElement(newPin));
+                openLargeView(newUrl);
+
+            } catch (err) {
+                console.error(err);
+            } finally {
+                generateBtn.innerHTML = '<i class="fas fa-magic mr-2"></i>AI Tech Pin';
+            }
+        }
+
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && !isFetching && currentPins.length < 1500) {
+                fetchMoreImages();
+            }
+        }, { threshold: 0.1 });
+
+        observer.observe(bottomTrigger);
+
+        searchInput.addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const cards = Array.from(pinContainer.children);
+            cards.forEach(card => {
+                const text = card.textContent.toLowerCase();
+                card.style.display = text.includes(term) ? 'block' : 'none';
+            });
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchMoreImages(); 
+            startUpdateTimer();
+            document.getElementById('refreshTimer').classList.remove('hidden');
+        });
+    </script>
+</body>
+</html>
