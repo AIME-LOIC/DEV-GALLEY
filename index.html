@@ -54,6 +54,17 @@
         .empty-state.visible {
             display: block;
         }
+
+        /* Search results empty state */
+        .empty-search {
+            break-inside: avoid;
+            text-align: center;
+            padding: 2rem 1rem;
+            display: none;
+        }
+        .empty-search.visible {
+            display: block;
+        }
     </style>
 </head>
 <body class="bg-white font-sans antialiased">
@@ -142,6 +153,16 @@
         let pageCount = 1;
         let currentPins = [];
         let timeRemaining = 300;
+
+        // Empty state shown when a search returns no results
+        function showEmptySearch() {
+            emptyStateEl.textContent = 'No images found for “' + searchInput.value + '”';
+            emptyStateEl.className = 'empty-search visible';
+        }
+
+        function hideEmptySearch() {
+            emptyStateEl.className = 'empty-search';
+        }
 
         // Function to create a Pin element
         function createPinElement(pin) {
@@ -280,13 +301,17 @@
         searchInput.addEventListener('input', (e) => {
             const term = e.target.value.toLowerCase();
             const cards = Array.from(pinContainer.children);
+            const hasVisible = cards.some(card => card.style.display !== 'none');
             cards.forEach(card => {
                 const text = card.textContent.toLowerCase();
                 card.style.display = text.includes(term) ? 'block' : 'none';
             });
-        });
-
-        window.addEventListener('DOMContentLoaded', () => {
+            if (term && !hasVisible) {
+                showEmptySearch();
+            } else {
+                hideEmptySearch();
+            }
+        });        window.addEventListener('DOMContentLoaded', () => {
             fetchMoreImages();
             startUpdateTimer();
             document.getElementById('refreshTimer').classList.remove('hidden');
